@@ -1,40 +1,343 @@
-name: PC Virtual Ubuntu
+name: PC Virtual GPU - RDP
 
 on:
   workflow_dispatch:
 
 jobs:
   pc-virtual:
-    name: Iniciar PC Virtual
-    runs-on: ubuntu-latest
+
+    # =========================================================
+    # IMPORTANTE:
+    # TROQUE PELO LABEL DO SEU LARGER RUNNER GPU
+    # =========================================================
+    runs-on:
+      labels: SEU-LABEL-GPU
+
     timeout-minutes: 350
 
     steps:
 
-      - name: Atualizar sistema
+      # =========================================================
+      # ATUALIZAR SISTEMA
+      # =========================================================
+
+      - name: Atualizar Ubuntu
         run: |
           sudo apt-get update
-          sudo apt-get upgrade -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
 
-      - name: Instalar Desktop XFCE
+      # =========================================================
+      # INSTALAR DESKTOP + RDP + FERRAMENTAS
+      # =========================================================
+
+      - name: Instalar ambiente gráfico
         run: |
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
             xfce4 \
             xfce4-goodies \
-            tigervnc-standalone-server \
-            tigervnc-common \
-            novnc \
-            websockify \
+            xrdp \
             dbus-x11 \
             xterm \
             firefox \
+            chromium \
+            git \
             curl \
             wget \
-            git \
             nano \
             htop \
             unzip \
-            zip
+            zip \
+            p7zip-full \
+            mesa-utils \
+            pciutils \
+            net-tools
+
+      # =========================================================
+      # USUARIO DO PC
+      # =========================================================
+
+      - name: Criar usuario
+        run: |
+
+          if ! id virtualpc >/dev/null 2>&1; then
+            sudo useradd -m -s /bin/bash virtualpc
+          fi
+
+          echo "virtualpc:123456" | sudo chpasswd
+
+          sudo usermod -aG sudo virtualpc
+
+      # =========================================================
+      # CONFIGURAR XFCE
+      # =========================================================
+
+      - name: Configurar XFCE
+        run: |
+
+          sudo bash -c 'cat > /home/virtualpc/.xsession <<EOF
+          #!/bin/sh
+
+          unset DBUS_SESSION_BUS_ADDRESS
+          unset XDG_RUNTIME_DIR
+
+          export XDG_CURRENT_DESKTOP=XFCE
+          export XDG_CONFIG_DIRS=/etc/xdg/xdg-xfce:/etc/xdg
+          export LIBGL_ALWAYS_INDIRECT=0
+
+          exec startxfce4
+          EOF'
+
+          sudo chmod +x /home/virtualpc/.xsession
+
+          sudo chown \
+            virtualpc:virtualpc \
+            /home/virtualpc/.xsession
+
+      # =========================================================
+      # CONFIGURAR XRDP
+      # =========================================================
+
+      - name: Configurar RDP
+        run: |
+
+          sudo bash -c 'cat > /etc/xrdp/startwm.sh <<EOF
+          #!/bin/sh
+
+          unset DBUS_SESSION_BUS_ADDRESS
+          unset XDG_RUNTIME_DIR
+
+          export XDG_CURRENT_DESKTOP=XFCE
+
+          exec startxfce4
+          EOF'
+
+          sudo chmod +x /etc/xrdp/startwm.sh
+
+          sudo adduser xrdp ssl-cert || true
+
+          sudo systemctl enable xrdp
+          sudo systemctl restart xrdp
+
+          sleep 5
+
+      # =========================================================
+      # VERIFICAR RDP
+      # =========================================================
+
+      - name: Verificar RDP
+        run: |
+
+          echo "=========================================="
+          echo "        VERIFICANDO RDP"
+          echo "=========================================="
+
+          sudo systemctl status xrdp --no-pager || true
+
+          echo ""
+
+          sudo ss -lntp | grep 3389 || true
+
+      # =========================================================
+      # VERIFICAR GPU
+      # =========================================================
+
+      - name: Verificar GPU NVIDIA
+        run: |
+
+          echo "=========================================="
+          echo "          GPU DISPONIVEL"
+          echo "=========================================="
+
+          if command -v nvidia-smi >/dev/null 2>&1; then
+
+            nvidia-smi
+
+          else
+
+            echo "nvidia-smi nao encontrado."
+            echo "Verificando hardware..."
+
+            lspci | grep -i nvidia || true
+
+          fi
+
+      # =========================================================
+      # VERIFICAR CPU / RAM / SSD
+      # =========================================================
+
+      - name: Mostrar hardware
+        run: |
+
+          echo "=========================================="
+          echo "              HARDWARE"
+          echo "=========================================="
+
+          echo ""
+          echo "CPU:"
+          nproc
+
+          echo ""
+          echo "RAM:"
+          free -h
+
+          echo ""
+          echo "SSD:"
+          df -h /
+
+          echo ""
+          echo "GPU:"
+          nvidia-smi || true
+
+      # =========================================================
+      # INSTALAR TAILSCALE
+      # =========================================================
+
+      - name: Instalar Tailscale
+        run: |
+
+          curl -fsSL https://tailscale.com/install.sh | sh
+
+      # =========================================================
+      # CONECTAR VPN
+      # =========================================================
+
+      - name: Conectar Tailscale
+        env:
+          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+
+        run: |
+
+          if [ -z "$TAILSCALE_AUTHKEY" ]; then
+
+            echo "ERRO!"
+            echo "Configure o secret TAILSCALE_AUTHKEY no GitHub."
+
+            exit 1
+
+          fi
+
+          sudo tailscale up \
+            --auth-key="$TAILSCALE_AUTHKEY" \
+            --hostname=github-pc-gpu
+
+          sleep 10
+
+      # =========================================================
+      # MOSTRAR IP PARA WINDOWS APP
+      # =========================================================
+
+      - name: Mostrar endereco do PC
+        run: |
+
+          IP=$(sudo tailscale ip -4)
+
+          echo ""
+          echo "================================================"
+          echo "              PC VIRTUAL ONLINE"
+          echo "================================================"
+          echo ""
+
+          echo "IP TAILSCALE:"
+          echo "$IP"
+
+          echo ""
+
+          echo "WINDOWS APP"
+          echo "PC NAME: $IP"
+          echo "USUARIO: virtualpc"
+          echo "SENHA: 123456"
+          echo "GATEWAY: deixar vazio"
+
+          echo ""
+
+          echo "================================================"
+          echo "              HARDWARE"
+          echo "================================================"
+
+          echo ""
+          echo "CPU:"
+          nproc
+
+          echo ""
+          echo "RAM:"
+          free -h
+
+          echo ""
+          echo "SSD:"
+          df -h /
+
+          echo ""
+          echo "GPU:"
+          nvidia-smi || true
+
+          echo ""
+          echo "================================================"
+
+      # =========================================================
+      # TESTAR RDP
+      # =========================================================
+
+      - name: Testar porta RDP
+        run: |
+
+          echo "Testando porta 3389..."
+
+          if sudo ss -lnt | grep -q ":3389"; then
+
+            echo ""
+            echo "RDP FUNCIONANDO!"
+            echo "Porta 3389 aberta."
+
+          else
+
+            echo ""
+            echo "ERRO: RDP NAO ESTA FUNCIONANDO."
+
+            sudo systemctl status xrdp --no-pager
+
+            exit 1
+
+          fi
+
+      # =========================================================
+      # MANTER PC LIGADO
+      # =========================================================
+
+      - name: Manter PC online
+        run: |
+
+          echo ""
+          echo "================================================"
+          echo "           PC VIRTUAL RODANDO"
+          echo "================================================"
+
+          while true
+          do
+
+            echo ""
+            echo "----------------------------------------"
+            echo "PC ativo: $(date)"
+            echo "----------------------------------------"
+
+            echo "IP Tailscale:"
+            sudo tailscale ip -4
+
+            echo ""
+            echo "RAM:"
+            free -h
+
+            echo ""
+            echo "GPU:"
+            nvidia-smi --query-gpu=name,memory.total,memory.used,utilization.gpu \
+              --format=csv,noheader || true
+
+            echo ""
+            echo "RDP:"
+            sudo ss -lnt | grep 3389 || true
+
+            sleep 60
+
+          done            zip
 
       - name: Criar usuario do PC
         run: |
