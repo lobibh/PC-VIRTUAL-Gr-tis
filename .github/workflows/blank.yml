@@ -1,0 +1,144 @@
+name: PC Virtual Ubuntu
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pc-virtual:
+    name: Iniciar PC Virtual
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+
+    steps:
+
+      - name: Atualizar sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get upgrade -y
+
+      - name: Instalar Desktop XFCE
+        run: |
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            xfce4 \
+            xfce4-goodies \
+            tigervnc-standalone-server \
+            tigervnc-common \
+            novnc \
+            websockify \
+            dbus-x11 \
+            xterm \
+            firefox \
+            curl \
+            wget \
+            git \
+            nano \
+            htop \
+            unzip \
+            zip
+
+      - name: Criar usuario do PC
+        run: |
+          sudo useradd -m -s /bin/bash virtualpc || true
+
+          echo "virtualpc:123456" | sudo chpasswd
+
+          sudo usermod -aG sudo virtualpc
+
+      - name: Configurar Desktop
+        run: |
+          sudo mkdir -p /home/virtualpc/.vnc
+
+          sudo tee /home/virtualpc/.vnc/xstartup > /dev/null << 'EOF'
+          #!/bin/sh
+
+          unset SESSION_MANAGER
+          unset DBUS_SESSION_BUS_ADDRESS
+
+          exec startxfce4
+          EOF
+
+          sudo chmod +x /home/virtualpc/.vnc/xstartup
+
+          echo "123456" | \
+            sudo -u virtualpc \
+            vncpasswd -f \
+            > /tmp/vncpass
+
+          sudo mv /tmp/vncpass /home/virtualpc/.vnc/passwd
+
+          sudo chmod 600 /home/virtualpc/.vnc/passwd
+
+          sudo chown -R virtualpc:virtualpc /home/virtualpc/.vnc
+
+      - name: Iniciar PC Virtual
+        run: |
+          sudo -u virtualpc \
+            vncserver :1 \
+            -geometry 1280x720 \
+            -depth 24
+
+          sleep 10
+
+          echo "VNC iniciado na porta 5901"
+
+      - name: Iniciar acesso pelo navegador
+        run: |
+          nohup \
+            websockify \
+            --web /usr/share/novnc \
+            6080 \
+            localhost:5901 \
+            > novnc.log 2>&1 &
+
+          sleep 5
+
+          echo "noVNC iniciado"
+
+          curl -I http://localhost:6080/vnc.html
+
+      - name: Instalar Cloudflared
+        run: |
+          wget -q \
+            https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 \
+            -O cloudflared
+
+          chmod +x cloudflared
+
+          sudo mv cloudflared /usr/local/bin/cloudflared
+
+      - name: Criar link publico do PC
+        run: |
+          nohup \
+            cloudflared tunnel \
+            --url http://localhost:6080 \
+            --no-autoupdate \
+            > cloudflared.log 2>&1 &
+
+          echo "Aguardando criação do link..."
+
+          sleep 15
+
+          echo ""
+          echo "=========================================="
+          echo "            PC VIRTUAL ONLINE"
+          echo "=========================================="
+          echo ""
+
+          cat cloudflared.log
+
+          echo ""
+          echo "Procure o link https://....trycloudflare.com"
+          echo ""
+
+      - name: Manter PC ligado
+        run: |
+          echo "=========================================="
+          echo "PC VIRTUAL RODANDO"
+          echo "=========================================="
+
+          while true
+          do
+            echo "PC ativo: $(date)"
+
+            sleep 60
+          done
