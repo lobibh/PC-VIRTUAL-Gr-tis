@@ -385,6 +385,357 @@ jobs:
             Write-Host "----------------------------------------"
 
             Start-Sleep -Seconds 60
+          }            Select-Object Name,
+                          NumberOfCores,
+                          NumberOfLogicalProcessors
+
+          Write-Host ""
+          Write-Host "RAM:"
+
+          $ram = Get-CimInstance Win32_ComputerSystem
+
+          Write-Host "$([math]::Round($ram.TotalPhysicalMemory / 1GB, 2)) GB"
+
+          Write-Host ""
+          Write-Host "DISCOS:"
+
+          Get-CimInstance Win32_LogicalDisk |
+            Where-Object {$_.DriveType -eq 3} |
+            Select-Object DeviceID,
+                          @{Name="TamanhoGB";Expression={
+                            [math]::Round($_.Size / 1GB,2)
+                          }},
+                          @{Name="LivreGB";Expression={
+                            [math]::Round($_.FreeSpace / 1GB,2)
+                          }}
+
+
+      # ==========================================
+      # DETECTAR GPU
+      # ==========================================
+
+      - name: Detectar GPU
+        shell: powershell
+        run: |
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "                  GPU"
+          Write-Host "=========================================="
+
+          $gpus = Get-CimInstance Win32_VideoController
+
+          foreach ($gpu in $gpus) {
+
+            Write-Host ""
+            Write-Host "GPU:"
+            Write-Host $gpu.Name
+
+            Write-Host "Processador:"
+            Write-Host $gpu.VideoProcessor
+
+            if ($gpu.AdapterRAM) {
+
+              Write-Host "VRAM:"
+              Write-Host "$([math]::Round($gpu.AdapterRAM / 1GB,2)) GB"
+
+            }
+          }
+
+          Write-Host ""
+          Write-Host "NVIDIA SMI:"
+
+          $nvidia = Get-Command nvidia-smi `
+            -ErrorAction SilentlyContinue
+
+          if ($null -ne $nvidia) {
+
+            nvidia-smi
+
+          }
+          else {
+
+            Write-Host "nvidia-smi não disponível."
+          }
+
+
+      # ==========================================
+      # INSTALAR ANYDESK
+      # ==========================================
+
+      - name: Instalar AnyDesk
+        shell: powershell
+        run: |
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "          INSTALANDO ANYDESK"
+          Write-Host "=========================================="
+
+          $installer = "$env:TEMP\AnyDesk.exe"
+
+          $installPath = "C:\Program Files (x86)\AnyDesk"
+
+          $anydesk = "$installPath\AnyDesk.exe"
+
+          Write-Host ""
+          Write-Host "Baixando AnyDesk..."
+
+          Invoke-WebRequest `
+            -Uri "https://download.anydesk.com/AnyDesk.exe" `
+            -OutFile $installer
+
+          if (!(Test-Path $installer)) {
+
+            Write-Host "ERRO: download do AnyDesk falhou."
+
+            exit 1
+          }
+
+          Write-Host "Download concluído."
+
+          Write-Host ""
+          Write-Host "Instalando AnyDesk..."
+
+          Start-Process `
+            -FilePath $installer `
+            -ArgumentList "--install `"$installPath`" --start-with-win --silent" `
+            -Wait
+
+          Start-Sleep -Seconds 10
+
+          if (!(Test-Path $anydesk)) {
+
+            Write-Host "ERRO: AnyDesk não foi instalado."
+
+            exit 1
+          }
+
+          Write-Host ""
+          Write-Host "AnyDesk instalado com sucesso."
+
+
+      # ==========================================
+      # INICIAR ANYDESK
+      # ==========================================
+
+      - name: Iniciar AnyDesk
+        shell: powershell
+        run: |
+
+          $anydesk = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+
+          if (!(Test-Path $anydesk)) {
+
+            Write-Host "ERRO: AnyDesk não encontrado."
+
+            exit 1
+          }
+
+          Write-Host ""
+          Write-Host "Iniciando AnyDesk..."
+
+          Start-Process `
+            -FilePath $anydesk
+
+          Start-Sleep -Seconds 15
+
+          $process = Get-Process `
+            -Name "AnyDesk" `
+            -ErrorAction SilentlyContinue
+
+          if ($null -eq $process) {
+
+            Write-Host "ERRO: AnyDesk não está executando."
+
+            exit 1
+          }
+
+          Write-Host "AnyDesk está executando."
+
+
+      # ==========================================
+      # MOSTRAR ID
+      # ==========================================
+
+      - name: Mostrar ID do AnyDesk
+        shell: powershell
+        run: |
+
+          $anydesk = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+
+          Start-Sleep -Seconds 5
+
+          $id = (& $anydesk --get-id).Trim()
+
+          $alias = (& $anydesk --get-alias).Trim()
+
+          Write-Host ""
+          Write-Host "================================================"
+          Write-Host "                ANYDESK ONLINE"
+          Write-Host "================================================"
+
+          Write-Host ""
+          Write-Host "ID ANYDESK:"
+          Write-Host $id
+
+          Write-Host ""
+          Write-Host "ALIAS:"
+          Write-Host $alias
+
+          Write-Host ""
+          Write-Host "AUTENTICAÇÃO:"
+          Write-Host "Sem senha configurada."
+
+          Write-Host ""
+          Write-Host "================================================"
+
+
+      # ==========================================
+      # TESTAR ANYDESK
+      # ==========================================
+
+      - name: Verificar AnyDesk
+        shell: powershell
+        run: |
+
+          $anydesk = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "          TESTANDO ANYDESK"
+          Write-Host "=========================================="
+
+          $process = Get-Process `
+            -Name "AnyDesk" `
+            -ErrorAction SilentlyContinue
+
+          if ($null -eq $process) {
+
+            Write-Host "AnyDesk está OFFLINE."
+
+            Start-Process $anydesk
+
+            Start-Sleep -Seconds 10
+
+            $process = Get-Process `
+              -Name "AnyDesk" `
+              -ErrorAction SilentlyContinue
+          }
+
+          if ($null -eq $process) {
+
+            Write-Host "ERRO: não foi possível iniciar o AnyDesk."
+
+            exit 1
+          }
+
+          Write-Host ""
+          Write-Host "AnyDesk: ONLINE"
+
+          Write-Host ""
+          Write-Host "ID:"
+
+          & $anydesk --get-id
+
+
+      # ==========================================
+      # STATUS COMPLETO
+      # ==========================================
+
+      - name: Status do PC
+        shell: powershell
+        run: |
+
+          $anydesk = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+
+          Write-Host ""
+          Write-Host "================================================"
+          Write-Host "             PC VIRTUAL ONLINE"
+          Write-Host "================================================"
+
+          Write-Host ""
+          Write-Host "ANYDESK ID:"
+
+          & $anydesk --get-id
+
+          Write-Host ""
+          Write-Host "ALIAS:"
+
+          & $anydesk --get-alias
+
+          Write-Host ""
+          Write-Host "PROCESSO:"
+
+          Get-Process `
+            -Name "AnyDesk" `
+            -ErrorAction SilentlyContinue |
+            Select-Object Id,
+                          ProcessName,
+                          CPU
+
+          Write-Host ""
+          Write-Host "================================================"
+
+
+      # ==========================================
+      # MANTER PC ONLINE
+      # ==========================================
+
+      - name: Manter PC online
+        shell: powershell
+        run: |
+
+          $anydesk = "C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+
+          Write-Host ""
+          Write-Host "================================================"
+          Write-Host "           PC VIRTUAL RODANDO"
+          Write-Host "================================================"
+
+          Write-Host ""
+          Write-Host "AnyDesk continuará executando."
+          Write-Host "O ID está disponível nos logs acima."
+
+          while ($true) {
+
+            $process = Get-Process `
+              -Name "AnyDesk" `
+              -ErrorAction SilentlyContinue
+
+            Write-Host ""
+            Write-Host "----------------------------------------"
+
+            Write-Host "Hora:"
+            Write-Host (Get-Date)
+
+            if ($null -ne $process) {
+
+              Write-Host "AnyDesk: ONLINE"
+
+              Write-Host ""
+              Write-Host "ID:"
+
+              & $anydesk --get-id
+
+            }
+            else {
+
+              Write-Host "AnyDesk: OFFLINE"
+
+              Write-Host ""
+              Write-Host "Tentando iniciar novamente..."
+
+              Start-Process `
+                -FilePath $anydesk
+
+              Start-Sleep -Seconds 10
+
+            }
+
+            Write-Host "----------------------------------------"
+
+            Start-Sleep -Seconds 60
           }      - name: Criar usuario RDP
         shell: powershell
         run: |
